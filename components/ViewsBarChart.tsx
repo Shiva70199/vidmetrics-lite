@@ -25,7 +25,7 @@ export function ViewsBarChart({
       {
         label: "Views",
         data: values,
-        backgroundColor: "rgba(255,75,31,0.88)",
+        backgroundColor: "rgba(0,0,0,0.88)",
         borderColor: "rgba(0,0,0,0.9)",
         borderWidth: 1,
         borderRadius: 8,

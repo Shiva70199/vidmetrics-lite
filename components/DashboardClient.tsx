@@ -310,25 +310,25 @@ export function DashboardClient({ channelUrl }: DashboardClientProps) {
         <div className="premium-card p-5 sm:p-6">
           <p className="section-title">Insights</p>
           <div className="mt-4 space-y-4">
-            <div className="rounded-xl border border-black bg-black px-4 py-4">
+            <div className="rounded-xl border border-[#ff4b1f]/30 bg-[#ff4b1f]/10 px-4 py-4">
               <p className="text-sm font-semibold text-neutral-900">
-                <span className="text-white">🚀 Top Performer</span>
+                 Top Performer
               </p>
-              <p className="mt-1 line-clamp-2 text-sm text-white/80">
+              <p className="mt-1 line-clamp-2 text-sm text-neutral-700">
                 {topVideo.title}
               </p>
             </div>
             <div className="rounded-xl border border-[#ff4b1f]/30 bg-[#ff4b1f]/10 px-4 py-4">
-              <p className="text-sm font-semibold text-neutral-900">📊 Average Engagement Rate</p>
+              <p className="text-sm font-semibold text-neutral-900"> Average Engagement Rate</p>
               <p className="mt-2 text-2xl font-extrabold text-black">
                 {avgEngagement.toFixed(1)}%
               </p>
             </div>
-            <div className="rounded-xl border border-neutral-200 bg-white px-4 py-4">
+            <div className="rounded-xl border border-[#ff4b1f]/30 bg-[#ff4b1f]/10 px-4 py-4">
               <p className="text-sm font-semibold text-neutral-900">
-                📅 Posting Frequency
+                 Posting Frequency
               </p>
-              <p className="mt-2 text-2xl font-semibold text-black">
+              <p className="mt-2 text-2xl font-extrabold text-black">
                 Every {avgPostingGapDays.toFixed(1)} days
               </p>
               <p className="mt-1 text-xs text-neutral-500">
