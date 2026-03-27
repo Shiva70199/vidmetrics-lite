@@ -37,6 +37,8 @@ export function DashboardClient({ channelUrl }: DashboardClientProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("views");
+  const [timeFilterDays, setTimeFilterDays] = useState<7 | 14 | 30>(30);
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -69,9 +71,23 @@ export function DashboardClient({ channelUrl }: DashboardClientProps) {
     };
   }, [channelUrl]);
 
+  const filteredVideos = useMemo(() => {
+    const videos = data?.videos ?? [];
+    const query = searchQuery.trim().toLowerCase();
+
+    return videos.filter((video) => {
+      const days = Number(video?.daysSincePublished || 0);
+      const withinWindow = days <= timeFilterDays;
+      if (!withinWindow) return false;
+
+      if (!query) return true;
+      const title = (video?.title ?? "").toLowerCase();
+      return title.includes(query);
+    });
+  }, [data?.videos, searchQuery, timeFilterDays]);
+
   const sortedVideos = useMemo(() => {
-    if (!data?.videos) return [];
-    const copy = [...data.videos];
+    const copy = [...filteredVideos];
     copy.sort((a, b) => {
       if (sortKey === "publishedAt") {
         return (
@@ -81,10 +97,10 @@ export function DashboardClient({ channelUrl }: DashboardClientProps) {
       return Number((b as any)[sortKey]) - Number((a as any)[sortKey]);
     });
     return copy;
-  }, [data?.videos, sortKey]);
+  }, [filteredVideos, sortKey]);
 
   const overview = useMemo(() => {
-    const videos = data?.videos ?? [];
+    const videos = filteredVideos;
     const total = videos.length;
     const totalViews = videos.reduce((sum, v) => sum + (v.views || 0), 0);
     const totalEngagement = videos.reduce(
@@ -106,10 +122,10 @@ export function DashboardClient({ channelUrl }: DashboardClientProps) {
       topTitle,
       topViews
     };
-  }, [data?.videos]);
+  }, [filteredVideos]);
 
   const whyItWorks = useMemo(() => {
-    const videos = data?.videos ?? [];
+    const videos = filteredVideos;
     if (videos.length < 3) {
       return [
         "Not enough recent data to generate insights yet. Try a channel with more uploads in the last 30 days."
@@ -185,10 +201,10 @@ export function DashboardClient({ channelUrl }: DashboardClientProps) {
     return insights.slice(0, 3).length ? insights.slice(0, 3) : [
       "Performance is fairly consistent across uploads—try changing topics, pacing, or packaging to create breakout videos."
     ];
-  }, [data?.videos]);
+  }, [filteredVideos]);
 
   const performanceDistribution = useMemo(() => {
-    const videos = data?.videos ?? [];
+    const videos = filteredVideos;
     const n = videos.length;
     if (n === 0) {
       return { high: 0, medium: 0, low: 0, total: 0 };
@@ -205,7 +221,7 @@ export function DashboardClient({ channelUrl }: DashboardClientProps) {
       low: Math.min(lowCount, n),
       total: n
     };
-  }, [data?.videos]);
+  }, [filteredVideos]);
 
   function exportCsv(videos: ApiVideo[]) {
     const headers = [
@@ -271,7 +287,16 @@ export function DashboardClient({ channelUrl }: DashboardClientProps) {
     );
   }
 
-  if (!data || data.videos.length === 0) {
+  const sourceHost = (() => {
+    try {
+      const u = new URL(channelUrl);
+      return u.hostname + (u.pathname?.length ? u.pathname : "");
+    } catch {
+      return channelUrl;
+    }
+  })();
+
+  if (!data || (data?.videos?.length ?? 0) === 0) {
     return (
       <div className="premium-card p-5">
         <p className="text-sm font-semibold text-neutral-900">
@@ -284,18 +309,67 @@ export function DashboardClient({ channelUrl }: DashboardClientProps) {
     );
   }
 
-  const totalVideos = data.videos.length;
+  if (sortedVideos.length === 0) {
+    return (
+      <div className="space-y-6">
+        <div className="premium-card p-5 sm:p-6">
+          <p className="section-title">Dashboard</p>
+          <h2 className="mt-2 text-2xl font-extrabold tracking-tight text-black sm:text-3xl">
+            Analyzing: {data.channelTitle || "YouTube Channel"}
+          </h2>
+          <p className="mt-2 text-sm text-neutral-600">
+            Source: <span className="font-medium text-neutral-900">{sourceHost}</span>
+          </p>
+        </div>
+        <div className="premium-card p-5 sm:p-6">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <select
+              className="rounded-full border border-black bg-white px-3 py-2 text-sm font-semibold text-black"
+              value={timeFilterDays}
+              onChange={(e) => setTimeFilterDays(Number(e.target.value) as 7 | 14 | 30)}
+            >
+              <option value={7}>Last 7 days</option>
+              <option value={14}>Last 14 days</option>
+              <option value={30}>Last 30 days</option>
+            </select>
+            <input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search videos by title"
+              className="rounded-full border border-neutral-300 bg-white px-4 py-2 text-sm text-neutral-900 outline-none focus:border-black focus:ring-2 focus:ring-black"
+            />
+            <button
+              type="button"
+              className="rounded-full border border-neutral-300 bg-white px-4 py-2 text-sm font-semibold text-neutral-900 transition hover:bg-neutral-50"
+              onClick={() => {
+                setSearchQuery("");
+                setTimeFilterDays(30);
+              }}
+            >
+              Reset filters
+            </button>
+          </div>
+          <p className="mt-4 text-sm text-neutral-700">
+            No videos match the current filters. Try a wider time window or clear the search term.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const totalVideos = sortedVideos.length;
   const avgViews =
-    data.videos.reduce((sum, v) => sum + v.views, 0) / Math.max(totalVideos, 1);
-  const topVideo = data.videos[0];
+    sortedVideos.reduce((sum, v) => sum + (v?.views || 0), 0) /
+    Math.max(totalVideos, 1);
+  const topVideo = sortedVideos[0];
   const avgEngagement =
-    data.videos.reduce((sum, v) => sum + v.engagementRate, 0) /
+    sortedVideos.reduce((sum, v) => sum + (v?.engagementRate || 0), 0) /
     Math.max(totalVideos, 1);
   const avgTrending =
-    data.videos.reduce((sum, v) => sum + v.trendingScore, 0) /
+    sortedVideos.reduce((sum, v) => sum + (v?.trendingScore || 0), 0) /
     Math.max(totalVideos, 1);
 
-  const sortedByDate = [...data.videos].sort(
+  const sortedByDate = [...sortedVideos].sort(
     (a, b) => new Date(a.publishedAt).getTime() - new Date(b.publishedAt).getTime()
   );
   const postingGaps = sortedByDate
@@ -313,20 +387,11 @@ export function DashboardClient({ channelUrl }: DashboardClientProps) {
   const trendingThreshold = Math.max(avgTrending * 1.35, 1);
   const highEngagementThreshold = Math.max(avgEngagement * 1.25, 3.5);
 
-  const chartTop = [...data.videos].sort((a, b) => b.views - a.views).slice(0, 10);
+  const chartTop = [...sortedVideos].sort((a, b) => b.views - a.views).slice(0, 10);
   const chartLabels = chartTop.map((v) =>
     v.title.length > 18 ? `${v.title.slice(0, 18)}…` : v.title
   );
   const chartValues = chartTop.map((v) => v.views);
-  const sourceHost = (() => {
-    try {
-      const u = new URL(channelUrl);
-      return u.hostname + (u.pathname?.length ? u.pathname : "");
-    } catch {
-      return channelUrl;
-    }
-  })();
-
   return (
     <div className="space-y-8">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -346,6 +411,36 @@ export function DashboardClient({ channelUrl }: DashboardClientProps) {
         >
           Export Data (CSV)
         </button>
+      </div>
+
+      <div className="premium-card p-4 sm:p-5">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <select
+            className="rounded-full border border-black bg-white px-3 py-2 text-sm font-semibold text-black"
+            value={timeFilterDays}
+            onChange={(e) => setTimeFilterDays(Number(e.target.value) as 7 | 14 | 30)}
+          >
+            <option value={7}>Last 7 days</option>
+            <option value={14}>Last 14 days</option>
+            <option value={30}>Last 30 days</option>
+          </select>
+          <input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search videos by title"
+            className="rounded-full border border-neutral-300 bg-white px-4 py-2 text-sm text-neutral-900 outline-none focus:border-black focus:ring-2 focus:ring-black"
+          />
+          <button
+            type="button"
+            className="rounded-full border border-neutral-300 bg-white px-4 py-2 text-sm font-semibold text-neutral-900 transition hover:bg-neutral-50"
+            onClick={() => {
+              setSearchQuery("");
+              setTimeFilterDays(30);
+            }}
+          >
+            Reset filters
+          </button>
+        </div>
       </div>
 
       {/* 1) Channel Performance Overview */}
