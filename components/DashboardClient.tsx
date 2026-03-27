@@ -83,6 +83,130 @@ export function DashboardClient({ channelUrl }: DashboardClientProps) {
     return copy;
   }, [data?.videos, sortKey]);
 
+  const overview = useMemo(() => {
+    const videos = data?.videos ?? [];
+    const total = videos.length;
+    const totalViews = videos.reduce((sum, v) => sum + (v.views || 0), 0);
+    const totalEngagement = videos.reduce(
+      (sum, v) => sum + (v.engagementRate || 0),
+      0
+    );
+
+    const avgViews = total > 0 ? totalViews / total : 0;
+    const avgEngagementRate = total > 0 ? totalEngagement / total : 0;
+
+    const top = [...videos].sort((a, b) => (b.views || 0) - (a.views || 0))[0];
+    const topTitle = top?.title ?? "—";
+    const topViews = top?.views ?? 0;
+
+    return {
+      total,
+      avgViews,
+      avgEngagementRate,
+      topTitle,
+      topViews
+    };
+  }, [data?.videos]);
+
+  const whyItWorks = useMemo(() => {
+    const videos = data?.videos ?? [];
+    if (videos.length < 3) {
+      return [
+        "Not enough recent data to generate insights yet. Try a channel with more uploads in the last 30 days."
+      ];
+    }
+
+    const byDate = [...videos].sort(
+      (a, b) =>
+        new Date(b.publishedAt || 0).getTime() -
+        new Date(a.publishedAt || 0).getTime()
+    );
+
+    const midpoint = Math.max(1, Math.floor(byDate.length / 2));
+    const recent = byDate.slice(0, midpoint);
+    const older = byDate.slice(midpoint);
+
+    const avg = (arr: ApiVideo[], key: "views" | "engagementRate") => {
+      if (!arr.length) return 0;
+      const total = arr.reduce((s, v) => s + Number(v[key] || 0), 0);
+      return total / arr.length;
+    };
+
+    const insights: string[] = [];
+
+    // Short vs long (proxy: title length)
+    const titles = videos.map((v) => (v.title ?? "").length).filter((n) => n > 0);
+    const titleMedian = titles.length
+      ? [...titles].sort((a, b) => a - b)[Math.floor(titles.length / 2)]
+      : 0;
+    if (titleMedian > 0) {
+      const short = videos.filter((v) => (v.title?.length ?? 0) <= titleMedian);
+      const long = videos.filter((v) => (v.title?.length ?? 0) > titleMedian);
+      const shortViews = avg(short, "views");
+      const longViews = avg(long, "views");
+      if (short.length >= 2 && long.length >= 2) {
+        if (shortViews > longViews * 1.1) {
+          insights.push("Shorter-titled videos are performing better on this channel right now.");
+        } else if (longViews > shortViews * 1.1) {
+          insights.push("Longer-titled videos are outperforming shorter ones—this audience may prefer more specific topics.");
+        }
+      }
+    }
+
+    // Recent vs older
+    const recentEng = avg(recent, "engagementRate");
+    const olderEng = avg(older, "engagementRate");
+    if (recent.length >= 2 && older.length >= 2) {
+      if (recentEng > olderEng * 1.15) {
+        insights.push("Recent uploads are getting higher engagement—momentum is improving.");
+      } else if (olderEng > recentEng * 1.15) {
+        insights.push("Older uploads are still driving stronger engagement—recent topics may need tightening.");
+      }
+    }
+
+    // High engagement pattern + outliers
+    const views = videos.map((v) => v.views || 0).sort((a, b) => a - b);
+    const medianViews = views[Math.floor(views.length / 2)] || 0;
+    const outliers = videos.filter((v) => (v.views || 0) >= medianViews * 2 && medianViews > 0);
+
+    const engRates = videos.map((v) => v.engagementRate || 0).sort((a, b) => a - b);
+    const medEng = engRates[Math.floor(engRates.length / 2)] || 0;
+    const highEngCount = videos.filter((v) => (v.engagementRate || 0) >= Math.max(medEng * 1.5, 4)).length;
+
+    if (outliers.length >= 1) {
+      insights.push(
+        `There ${outliers.length === 1 ? "is" : "are"} ${outliers.length} clear performance outlier${outliers.length === 1 ? "" : "s"}—review the topic/format and replicate what worked.`
+      );
+    }
+    if (highEngCount >= 2) {
+      insights.push("Multiple videos show high engagement—your audience is responding well to certain topics or hooks.");
+    }
+
+    return insights.slice(0, 3).length ? insights.slice(0, 3) : [
+      "Performance is fairly consistent across uploads—try changing topics, pacing, or packaging to create breakout videos."
+    ];
+  }, [data?.videos]);
+
+  const performanceDistribution = useMemo(() => {
+    const videos = data?.videos ?? [];
+    const n = videos.length;
+    if (n === 0) {
+      return { high: 0, medium: 0, low: 0, total: 0 };
+    }
+
+    const sorted = [...videos].sort((a, b) => (b.views || 0) - (a.views || 0));
+    const highCount = Math.max(1, Math.ceil(n * 0.2));
+    const lowCount = Math.max(1, Math.ceil(n * 0.3));
+    const mediumCount = Math.max(0, n - highCount - lowCount);
+
+    return {
+      high: Math.min(highCount, n),
+      medium: Math.min(mediumCount, n),
+      low: Math.min(lowCount, n),
+      total: n
+    };
+  }, [data?.videos]);
+
   function exportCsv(videos: ApiVideo[]) {
     const headers = [
       "title",
@@ -222,6 +346,151 @@ export function DashboardClient({ channelUrl }: DashboardClientProps) {
         >
           Export Data (CSV)
         </button>
+      </div>
+
+      {/* 1) Channel Performance Overview */}
+      <div className="premium-card p-5 sm:p-6">
+        <div className="flex flex-col gap-1">
+          <p className="section-title">Channel Performance Overview</p>
+          <p className="mt-2 text-lg font-semibold text-neutral-900">
+            Summary of the last 30 days
+          </p>
+        </div>
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-xl border border-neutral-200 bg-white px-4 py-4">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-500">
+              Videos analyzed
+            </p>
+            <p className="mt-2 text-2xl font-semibold text-black">
+              {overview.total.toLocaleString()}
+            </p>
+          </div>
+          <div className="rounded-xl border border-neutral-200 bg-white px-4 py-4">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-500">
+              Average views
+            </p>
+            <p className="mt-2 text-2xl font-semibold text-black">
+              {Math.round(overview.avgViews).toLocaleString()}
+            </p>
+          </div>
+          <div className="rounded-xl border border-neutral-200 bg-white px-4 py-4">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-500">
+              Avg engagement rate
+            </p>
+            <p className="mt-2 text-2xl font-semibold text-black">
+              {overview.avgEngagementRate.toFixed(1)}%
+            </p>
+          </div>
+          <div className="rounded-xl border border-neutral-200 bg-white px-4 py-4">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-500">
+              Top performer
+            </p>
+            <p className="mt-2 line-clamp-2 text-sm font-semibold text-neutral-900">
+              {overview.topTitle}
+            </p>
+            <p className="mt-2 text-sm text-neutral-700">
+              {overview.topViews.toLocaleString()} views
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* 2) Why it works + distribution */}
+      <div className="premium-card p-5 sm:p-6">
+        <div className="flex flex-col gap-1">
+          <p className="section-title">Why It Works</p>
+          <p className="mt-2 text-lg font-semibold text-neutral-900">
+            Patterns detected from recent performance
+          </p>
+        </div>
+
+        <div className="mt-4 grid gap-4 lg:grid-cols-3">
+          <div className="lg:col-span-2">
+            <ul className="space-y-3">
+              {whyItWorks.map((insight, idx) => (
+                <li
+                  key={idx}
+                  className="rounded-xl border border-neutral-200 bg-white px-4 py-4 text-sm text-neutral-800"
+                >
+                  {insight}
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="rounded-xl border border-neutral-200 bg-white px-4 py-4">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-500">
+              Performance distribution
+            </p>
+            <p className="mt-2 text-sm text-neutral-700">
+              Based on views (top 20% / middle 50% / bottom 30%).
+            </p>
+            <div className="mt-4 space-y-3 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-black">High</span>
+                <span className="text-neutral-700">
+                  {performanceDistribution.high}/{performanceDistribution.total}
+                </span>
+              </div>
+              <div className="h-2 w-full rounded-full bg-neutral-200">
+                <div
+                  className="h-2 rounded-full bg-black"
+                  style={{
+                    width: `${
+                      performanceDistribution.total
+                        ? (performanceDistribution.high /
+                            performanceDistribution.total) *
+                          100
+                        : 0
+                    }%`
+                  }}
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-black">Medium</span>
+                <span className="text-neutral-700">
+                  {performanceDistribution.medium}/{performanceDistribution.total}
+                </span>
+              </div>
+              <div className="h-2 w-full rounded-full bg-neutral-200">
+                <div
+                  className="h-2 rounded-full bg-[#ff4b1f]/70"
+                  style={{
+                    width: `${
+                      performanceDistribution.total
+                        ? (performanceDistribution.medium /
+                            performanceDistribution.total) *
+                          100
+                        : 0
+                    }%`
+                  }}
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-black">Low</span>
+                <span className="text-neutral-700">
+                  {performanceDistribution.low}/{performanceDistribution.total}
+                </span>
+              </div>
+              <div className="h-2 w-full rounded-full bg-neutral-200">
+                <div
+                  className="h-2 rounded-full bg-neutral-500"
+                  style={{
+                    width: `${
+                      performanceDistribution.total
+                        ? (performanceDistribution.low /
+                            performanceDistribution.total) *
+                          100
+                        : 0
+                    }%`
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">

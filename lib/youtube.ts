@@ -108,52 +108,89 @@ async function resolveChannelId(identifier: string): Promise<string> {
 
 export async function fetchChannelVideos(
   channelUrl: string,
-  maxResults = 30
+  maxResults = 90
 ): Promise<ChannelVideosResult> {
   const identifier = extractChannelIdentifier(channelUrl);
   const apiKey = getApiKey();
   const channelId = await resolveChannelId(identifier);
 
-  // 1) search.list to get latest videos
-  const searchUrl = new URL("https://www.googleapis.com/youtube/v3/search");
-  searchUrl.searchParams.set("part", "snippet");
-  searchUrl.searchParams.set("channelId", channelId);
-  searchUrl.searchParams.set("maxResults", String(maxResults));
-  searchUrl.searchParams.set("order", "date");
-  searchUrl.searchParams.set("type", "video");
-  searchUrl.searchParams.set("key", apiKey);
+  // 1) search.list (paginated) to get a larger latest video pool
+  const effectiveMax = Math.max(1, Math.min(maxResults, 150));
+  const perPage = 50; // YouTube Data API limit for search.list
+  const videoIdSet = new Set<string>();
+  let channelTitle: string | null = null;
+  let nextPageToken: string | undefined;
+  let pageSafety = 0;
 
-  const searchRes = await fetch(searchUrl.toString());
-  if (!searchRes.ok) {
-    throw new Error("Failed to fetch videos for channel.");
+  while (videoIdSet.size < effectiveMax && pageSafety < 5) {
+    const searchUrl = new URL("https://www.googleapis.com/youtube/v3/search");
+    searchUrl.searchParams.set("part", "snippet");
+    searchUrl.searchParams.set("channelId", channelId);
+    searchUrl.searchParams.set(
+      "maxResults",
+      String(Math.min(perPage, effectiveMax - videoIdSet.size))
+    );
+    searchUrl.searchParams.set("order", "date");
+    searchUrl.searchParams.set("type", "video");
+    searchUrl.searchParams.set("key", apiKey);
+    if (nextPageToken) {
+      searchUrl.searchParams.set("pageToken", nextPageToken);
+    }
+
+    const searchRes = await fetch(searchUrl.toString());
+    if (!searchRes.ok) {
+      throw new Error("Failed to fetch videos for channel.");
+    }
+    const searchData = (await searchRes.json()) as any;
+
+    const ids: string[] =
+      searchData.items
+        ?.map((item: any) => item?.id?.videoId)
+        .filter(Boolean) ?? [];
+    ids.forEach((id) => videoIdSet.add(id));
+
+    if (!channelTitle) {
+      channelTitle = searchData.items?.[0]?.snippet?.channelTitle ?? null;
+    }
+
+    nextPageToken = searchData.nextPageToken;
+    pageSafety += 1;
+    if (!nextPageToken) break;
   }
-  const searchData = (await searchRes.json()) as any;
 
-  const videoIds: string[] =
-    searchData.items?.map((item: any) => item.id?.videoId).filter(Boolean) ??
-    [];
+  const videoIds = Array.from(videoIdSet).slice(0, effectiveMax);
 
   if (videoIds.length === 0) {
     return { channelId, channelTitle: null, videos: [] };
   }
 
-  // 2) videos.list to get stats
-  const videosUrl = new URL("https://www.googleapis.com/youtube/v3/videos");
-  videosUrl.searchParams.set("part", "snippet,statistics");
-  videosUrl.searchParams.set("id", videoIds.join(","));
-  videosUrl.searchParams.set("key", apiKey);
-
-  const videosRes = await fetch(videosUrl.toString());
-  if (!videosRes.ok) {
-    throw new Error("Failed to fetch video statistics.");
+  // 2) videos.list in batches (limit 50 IDs per request)
+  const batches: string[][] = [];
+  for (let i = 0; i < videoIds.length; i += 50) {
+    batches.push(videoIds.slice(i, i + 50));
   }
-  const videosData = (await videosRes.json()) as any;
+
+  const allVideoItems: any[] = [];
+  for (const batch of batches) {
+    const videosUrl = new URL("https://www.googleapis.com/youtube/v3/videos");
+    videosUrl.searchParams.set("part", "snippet,statistics");
+    videosUrl.searchParams.set("id", batch.join(","));
+    videosUrl.searchParams.set("key", apiKey);
+
+    const videosRes = await fetch(videosUrl.toString());
+    if (!videosRes.ok) {
+      throw new Error("Failed to fetch video statistics.");
+    }
+    const videosData = (await videosRes.json()) as any;
+    const items = videosData.items ?? [];
+    allVideoItems.push(...items);
+  }
 
   const now = DateTime.now();
   const thirtyDaysAgo = now.minus({ days: 30 });
 
   const rawVideos: RawVideo[] =
-    videosData.items?.map((item: any) => {
+    allVideoItems.map((item: any) => {
       const stats = item.statistics ?? {};
       const snippet = item.snippet ?? {};
       return {
@@ -188,8 +225,6 @@ export async function fetchChannelVideos(
       return published >= thirtyDaysAgo;
     })
     .sort((a, b) => b.views - a.views);
-
-  const channelTitle = searchData.items?.[0]?.snippet?.channelTitle ?? null;
 
   return { channelId, channelTitle, videos: enriched };
 }
