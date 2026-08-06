@@ -75,9 +75,6 @@ export function Navbar() {
           )}
 
           <span className="hidden h-1.5 w-1.5 rounded-full bg-green-500 md:inline-block" />
-          <span className="rounded-full border border-[#2563eb]/30 bg-[#2563eb]/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#1d4ed8]">
-            Lite
-          </span>
         </div>
       </div>
     </header>

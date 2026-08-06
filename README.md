@@ -2,7 +2,7 @@
 
 DataBoard is a full-stack CSV analytics dashboard. Authenticated users upload datasets, preview rows, compute statistics on numeric columns, and build bar, line, and scatter charts.
 
-Evolved from the VidMetrics Lite UI shell — layout, cards, typography, and responsive patterns are preserved; business logic is replaced with dataset management and analytics.
+**Repository:** https://github.com/Shiva70199/DataBoard
 
 ## Architecture
 
