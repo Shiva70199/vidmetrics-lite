@@ -14,6 +14,16 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# backend
+backend/.venv/
+backend/databoard.db
+backend/uploads/
+backend/test_uploads/
+backend/.env
+backend/__pycache__/
+backend/**/__pycache__/
+backend/.pytest_cache/
+
 # editor
 .vscode/
 .idea/
